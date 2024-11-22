@@ -5,11 +5,12 @@
 #
 
 import asyncio
-
 from typing import Awaitable, Callable
 
 from pipecat.frames.frames import (
     BotSpeakingFrame,
+    EndFrame,
+    EndTaskFrame,
     Frame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -32,28 +33,34 @@ class UserIdleProcessor(FrameProcessor):
         **kwargs,
     ):
         super().__init__(**kwargs)
-
+        self._running = True
         self._callback = callback
         self._timeout = timeout
-
         self._interrupted = False
-
         self._create_idle_task()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
+        # Check for end frames before processing
+        if isinstance(frame, (EndFrame, EndTaskFrame)):
+            self._running = False
+            self._idle_event.set()  # Wake up idle task so it can exit
+            await self.cleanup()
+
         await self.push_frame(frame, direction)
 
-        # We shouldn't call the idle callback if the user or the bot are speaking.
-        if isinstance(frame, UserStartedSpeakingFrame):
-            self._interrupted = True
-            self._idle_event.set()
-        elif isinstance(frame, UserStoppedSpeakingFrame):
-            self._interrupted = False
-            self._idle_event.set()
-        elif isinstance(frame, BotSpeakingFrame):
-            self._idle_event.set()
+        # Only process these frames if we're still running
+        if self._running:
+            # We shouldn't call the idle callback if the user or the bot are speaking.
+            if isinstance(frame, UserStartedSpeakingFrame):
+                self._interrupted = True
+                self._idle_event.set()
+            elif isinstance(frame, UserStoppedSpeakingFrame):
+                self._interrupted = False
+                self._idle_event.set()
+            elif isinstance(frame, BotSpeakingFrame):
+                self._idle_event.set()
 
     async def cleanup(self):
         self._idle_task.cancel()
@@ -64,7 +71,7 @@ class UserIdleProcessor(FrameProcessor):
         self._idle_task = self.get_event_loop().create_task(self._idle_task_handler())
 
     async def _idle_task_handler(self):
-        while True:
+        while self._running:
             try:
                 await asyncio.wait_for(self._idle_event.wait(), timeout=self._timeout)
             except asyncio.TimeoutError:
