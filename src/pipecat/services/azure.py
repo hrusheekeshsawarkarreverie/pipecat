@@ -431,7 +431,7 @@ class AzureBaseTTSService(TTSService):
         emphasis: Optional[str] = None
         language: Optional[Language] = Language.EN_US
         pitch: Optional[str] = None
-        rate: Optional[str] = "1.05"
+        rate: Optional[str] = "1.75"
         role: Optional[str] = None
         style: Optional[str] = None
         style_degree: Optional[str] = None
@@ -561,7 +561,7 @@ class AzureTTSService(AzureBaseTTSService):
         self._audio_queue.put_nowait(None)
 
     async def run_tts(self, text: str) -> AsyncGenerator[Frame, None]:
-        logger.debug(f"Generating TTS: [{text}]")
+        logger.debug(f"Generatinggggg TTS: [{text}]")
 
         try:
             await self.start_ttfb_metrics()
@@ -611,7 +611,7 @@ class AzureHttpTTSService(AzureBaseTTSService):
         self._speech_synthesizer = SpeechSynthesizer(speech_config=speech_config, audio_config=None)
 
     async def run_tts(self, text: str) -> AsyncGenerator[Frame, None]:
-        logger.debug(f"Generating TTS: [{text}]")
+        logger.debug(f"Generatingggg TTS: [{text}]")
 
         await self.start_ttfb_metrics()
 
@@ -684,8 +684,137 @@ class AzureSTTService(STTService):
 
     def _on_handle_recognized(self, event):
         if event.result.reason == ResultReason.RecognizedSpeech and len(event.result.text) > 0:
+            # transcript = event.result.text
+
+            # updated_transcript = await self._process_punctuation(transcript)
+            # _transcript = self._process_numbers(transcript)
+            # remove spaces and commas between numbers
+            # _updated_number = self._remove_spaces_followed_by_number(_transcript)
+
             frame = TranscriptionFrame(event.result.text, "", time_now_iso8601())
+            # frame = TranscriptionFrame(_updated_number, "", time_now_iso8601())
             asyncio.run_coroutine_threadsafe(self.push_frame(frame), self.get_event_loop())
+
+    def _get_language_name(self, language_code):
+        # create a dictionary of language code and language name
+        language_dict = {
+            "hi": "hindi",
+            "en": "english",
+            "bn": "bengali",
+            "as": "assamese",
+            "kn": "kannada",
+            "ml": "malayalam",
+            "mr": "marathi",
+            "or": "oriya",
+            "ta": "tamil",
+            "te": "telugu",
+            "pa": "punjabi",
+            "gu": "gujarati",
+            "ar": "arabic",
+        }
+        
+        # get the language name from the language code
+        language_name = language_dict.get(language_code)
+        
+        # return the language name
+        return language_name
+    
+
+    async def _process_punctuation(self, transcript: str):
+        # if there are . at the end of the transcript, remove them
+        if transcript and transcript[-1] == ".":
+            transcript = transcript[:-1]
+
+        return transcript
+
+    async def process_entities(self, transcript: str, language: str):
+        try:
+
+            # log the transcript before processing
+            logger.debug(f"Transcript before processing: {transcript}")
+
+            data = json.dumps(
+                {
+                    "query": transcript,
+                    "language": language,
+                    "domain": "generic",
+                    "entities": ["number", "exception"],
+                }
+            )
+
+            headers = {"Content-Type": "application/json"}
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "http://20.193.190.166:80/get_entities",
+                    data=data,
+                    headers=headers,
+                ) as response:
+                    response_json = await response.json()
+                    # translatedValue = response_json["responseList"][0]["outString"][0]
+
+                    display_text = response_json["display_text"]
+
+                    # log the translated value
+                    logger.debug(f"Updated text value: {display_text}")
+
+                    return display_text
+        except Exception as e:
+            logger.debug(f"Exception in ITN api {e}")
+            return transcript
+
+    def _process_numbers(self, transcript: str):
+        # शून्य, एक, दो, तीन, चार, पांच, छह, सात, आठ, नौ
+        # शून्य, तीन, चार, पांच, छह, सात, आठ, नौ - to check theses, other words have different meanings too
+        if (
+            "शून्य" in transcript
+            or "तीन" in transcript
+            or "चार" in transcript
+            or "पांच" in transcript
+            or "छह" in transcript
+            or "सात" in transcript
+            or "आठ" in transcript
+            or "नौ" in transcript
+        ):
+            # replace word to numbers
+            transcript = transcript.replace("शून्य", "0")
+            transcript = transcript.replace("एक", "1")
+            transcript = transcript.replace("दो", "2")
+            transcript = transcript.replace("तीन", "3")
+            transcript = transcript.replace("चार", "4")
+            transcript = transcript.replace("पांच", "5")
+            transcript = transcript.replace("छह", "6")
+            transcript = transcript.replace("सात", "7")
+            transcript = transcript.replace("आठ", "8")
+            transcript = transcript.replace("नौ", "9")
+
+            # also replace word+space to get continuos numbers as one
+            transcript = transcript.replace("शून्य ", "0")
+            transcript = transcript.replace("एक ", "1")
+            transcript = transcript.replace("दो ", "2")
+            transcript = transcript.replace("तीन ", "3")
+            transcript = transcript.replace("चार ", "4")
+            transcript = transcript.replace("पांच ", "5")
+            transcript = transcript.replace("छह ", "6")
+            transcript = transcript.replace("सात ", "7")
+            transcript = transcript.replace("आठ ", "8")
+            transcript = transcript.replace("नौ ", "9")
+
+            transcript = self._remove_comma_followed_by_number(transcript)
+            transcript = self._remove_spaces_followed_by_number(transcript)
+
+        return transcript
+
+    def _remove_spaces_followed_by_number(self, transcript):
+        # function uses a lookbehind assertion (?<=\d) to ensure the space is preceded by a digit
+        # a lookahead assertion (?=\d) to ensure the space is followed by a digit.
+        # also removes spaces between multiple numbers joined together
+        return re.sub(r"(?<=\d)\s(?=\d)", "", transcript)
+
+    def _remove_comma_followed_by_number(self, transcript):
+        # function uses a lookbehind assertion (?<=\d) to ensure the comma is preceded by a digit
+        # a lookahead assertion (?=\d) to ensure the comman is followed by a digit or multiple spaces.
+        return re.sub(r"(?<=\d),\s*(?=\d)", "", transcript)
 
 
 class AzureImageGenServiceREST(ImageGenService):

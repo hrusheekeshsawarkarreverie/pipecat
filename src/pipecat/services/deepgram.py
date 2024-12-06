@@ -125,7 +125,8 @@ class DeepgramSTTService(STTService):
         super().__init__(**kwargs)
         default_options = LiveOptions(
             encoding="linear16",
-            language=Language.EN,
+            # language=Language.EN,
+            language="en-IN",
             model="nova-2-general",
             sample_rate=16000,
             channels=1,
@@ -133,7 +134,7 @@ class DeepgramSTTService(STTService):
             smart_format=True,
             punctuate=True,
             profanity_filter=True,
-            vad_events=False,
+            vad_events=True,
         )
 
         merged_options = default_options

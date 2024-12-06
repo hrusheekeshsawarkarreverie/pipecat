@@ -1,6 +1,6 @@
 import json
-import aiohttp
-import uvicorn
+import aiohttp # type: ignore
+import uvicorn # type: ignore
 import os
 from fastapi import FastAPI, WebSocket, Request,HTTPException, Query, Form
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -13,6 +13,7 @@ from twilio.rest import Client
 import redis
 from dotenv import set_key, load_dotenv
 import time, uuid
+from utils.cloudflared import run_cloudflared, set_url_in_env
 
 
 app = FastAPI()
@@ -402,4 +403,8 @@ def make_call(user_id_pin: str, recipient_phone_number: str):
         logger.info(f"make_call exception: {str(e)}")
 
 if __name__ == "__main__":
+    # Run the cloudflared tunnel and update the .env
+    exposed_url = run_cloudflared()
+    if exposed_url:
+        set_url_in_env(exposed_url)
     uvicorn.run(app, host="0.0.0.0", port=8765)

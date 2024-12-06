@@ -49,7 +49,7 @@ class TwilioFrameSerializer(FrameSerializer):
         else:
             payload_base64 = message["media"]["payload"]
             payload = base64.b64decode(payload_base64)
-
+            # print("wer")
             deserialized_data = ulaw_to_pcm(
                 payload, self._params.twilio_sample_rate, self._params.sample_rate
             )
