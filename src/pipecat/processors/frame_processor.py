@@ -13,6 +13,7 @@ from loguru import logger
 
 from pipecat.clocks.base_clock import BaseClock
 from pipecat.frames.frames import (
+    CancelFrame,
     EndFrame,
     ErrorFrame,
     Frame,
@@ -57,6 +58,13 @@ class FrameProcessor:
         self._enable_metrics = False
         self._enable_usage_metrics = False
         self._report_only_initial_ttfb = False
+
+        # Cancellation is done through CancelFrame (a system frame). This could
+        # cause other events being triggered (e.g. closing a transport) which
+        # could also cause other frames to be pushed from other tasks
+        # (e.g. EndFrame). So, when we are cancelling we don't want anything
+        # else to be pushed.
+        self._cancelling = False
 
         # Metrics
         self._metrics = metrics or FrameProcessorMetrics()
@@ -161,6 +169,10 @@ class FrameProcessor:
             Callable[["FrameProcessor", Frame, FrameDirection], Awaitable[None]]
         ] = None,
     ):
+        # If we are cancelling we don't want to process any other frame.
+        if self._cancelling:
+            return
+
         if isinstance(frame, SystemFrame):
             # We don't want to queue system frames.
             await self.process_frame(frame, direction)
@@ -187,6 +199,8 @@ class FrameProcessor:
             await self.stop_all_metrics()
         elif isinstance(frame, StopInterruptionFrame):
             self._should_report_ttfb = True
+        elif isinstance(frame, CancelFrame):
+            self._cancelling = True
 
     async def push_error(self, error: ErrorFrame):
         await self.push_frame(error, FrameDirection.UPSTREAM)
@@ -254,6 +268,7 @@ class FrameProcessor:
             raise
 
     def __create_input_task(self):
+        self.__should_block_frames = False
         self.__input_queue = asyncio.Queue()
         self.__input_frame_task = self.get_event_loop().create_task(
             self.__input_frame_task_handler()

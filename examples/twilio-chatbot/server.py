@@ -1,19 +1,10 @@
 import json
 import aiohttp
 import uvicorn
-import os
-from fastapi import FastAPI, WebSocket, Request,HTTPException, Query, Form
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from bot import run_bot
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
-from loguru import logger
-from bot import run_bot
-from twilio.twiml.voice_response import VoiceResponse, Gather  # type: ignore
-from twilio.rest import Client
-import redis
-from dotenv import set_key, load_dotenv
-import time, uuid
-
 
 app = FastAPI()
 
