@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -22,13 +22,14 @@ from pipecat.frames.frames import (
     Frame,
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
+    FunctionCallResultProperties,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMMessagesFrame,
+    LLMTextFrame,
     LLMUpdateSettingsFrame,
     OpenAILLMContextAssistantTimestampFrame,
     StartInterruptionFrame,
-    TextFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
@@ -855,37 +856,8 @@ class BaseOpenAILLMService(LLMService):
                 if tool_call.function and tool_call.function.arguments:
                     # Keep iterating through the response to collect all the argument fragments
                     arguments += tool_call.function.arguments
-            # elif chunk.choices[0].delta.content:
-            #     await self.push_frame(TextFrame(chunk.choices[0].delta.content))
-
-            if self._nmt_flag == True:
-                if chunk.choices[0].delta.content is not None:
-                    self._frame += chunk.choices[0].delta.content
-                
-                if self._frame.strip().endswith(
-                    (".", "?", "!", "|", "।")) and not self._frame.strip().endswith(
-                    ("Mr,", "Mrs.", "Ms.", "Dr.")):
-                    text = self._frame
-                    text = text.replace("*", "")
-                    logger.debug(f"consolidated: {text}")
-                    translator = NMTService(text, self._tgt_lan, self._nmt_provider)
-                    processed_text = await translator.translate()
-                    self._processed_text = processed_text
-                    logger.debug(f"processed_text: {self._processed_text}")
-                    self._frame = ""
-            else:
-                if chunk.choices[0].delta.content is not None:
-                    cleaned_text = chunk.choices[0].delta.content.replace("*", "")
-                    self._processed_text = cleaned_text
-                else:
-                    self._processed_text = chunk.choices[0].delta.content
-
-            if self._processed_text:
-                # await self.push_frame(LLMResponseStartFrame())
-                await self.push_frame(TextFrame(self._processed_text))
-                # await self.push_frame(LLMResponseEndFrame())
-                full_response += self._processed_text  # Accumulate the response
-                self._processed_text = ""
+            elif chunk.choices[0].delta.content:
+                await self.push_frame(LLMTextFrame(chunk.choices[0].delta.content))
 
         # if we got a function name and arguments, check to see if it's a function with
         # a registered handler. If so, run the registered callback, save the result to
@@ -1188,6 +1160,7 @@ class OpenAIAssistantContextAggregator(LLMAssistantContextAggregator):
             return
 
         run_llm = False
+        properties: Optional[FunctionCallResultProperties] = None
 
         aggregation = self._aggregation
         self._reset()
@@ -1195,6 +1168,7 @@ class OpenAIAssistantContextAggregator(LLMAssistantContextAggregator):
         try:
             if self._function_call_result:
                 frame = self._function_call_result
+                properties = frame.properties
                 self._function_call_result = None
                 if frame.result:
                     self._context.add_message(
@@ -1219,8 +1193,13 @@ class OpenAIAssistantContextAggregator(LLMAssistantContextAggregator):
                             "tool_call_id": frame.tool_call_id,
                         }
                     )
-                    # Only run the LLM if there are no more function calls in progress.
-                    run_llm = not bool(self._function_calls_in_progress)
+                    if properties and properties.run_llm is not None:
+                        # If the tool call result has a run_llm property, use it
+                        run_llm = properties.run_llm
+                    else:
+                        # Default behavior is to run the LLM if there are no function calls in progress
+                        run_llm = not bool(self._function_calls_in_progress)
+
             else:
                 self._context.add_message({"role": "assistant", "content": aggregation})
 
@@ -1237,6 +1216,10 @@ class OpenAIAssistantContextAggregator(LLMAssistantContextAggregator):
 
             if run_llm:
                 await self._user_context_aggregator.push_context_frame()
+
+            # Emit the on_context_updated callback once the function call result is added to the context
+            if properties and properties.on_context_updated is not None:
+                await properties.on_context_updated()
 
             # Push context frame
             frame = OpenAILLMContextFrame(self._context)
