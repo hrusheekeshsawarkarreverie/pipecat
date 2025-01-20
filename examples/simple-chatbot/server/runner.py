@@ -19,6 +19,9 @@ async def configure(aiohttp_session: aiohttp.ClientSession):
         "-u", "--url", type=str, required=False, help="URL of the Daily room to join"
     )
     parser.add_argument(
+        "-b", "--conversation_id", type=str, required=False, help="conversation_id"
+    )
+    parser.add_argument(
         "-k",
         "--apikey",
         type=str,
@@ -30,7 +33,7 @@ async def configure(aiohttp_session: aiohttp.ClientSession):
 
     url = args.url or os.getenv("DAILY_SAMPLE_ROOM_URL")
     key = args.apikey or os.getenv("DAILY_API_KEY")
-
+    conversation_id = args.conversation_id
     if not url:
         raise Exception(
             "No Daily room specified. use the -u/--url option from the command line, or set DAILY_SAMPLE_ROOM_URL in your environment to specify a Daily room URL."
@@ -53,4 +56,4 @@ async def configure(aiohttp_session: aiohttp.ClientSession):
 
     token = await daily_rest_helper.get_token(url, expiry_time)
 
-    return (url, token)
+    return (url, token,conversation_id)

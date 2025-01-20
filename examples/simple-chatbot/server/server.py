@@ -25,15 +25,15 @@ import os
 import subprocess
 from contextlib import asynccontextmanager
 from typing import Any, Dict
-
+from loguru import logger
 import aiohttp
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
-
+import redis
 from pipecat.transports.services.helpers.daily_rest import DailyRESTHelper, DailyRoomParams
-
+import json
 # Load environment variables from .env file
 load_dotenv(override=True)
 
@@ -63,7 +63,7 @@ def get_bot_file():
     # If blank or None, default to openai
     if not bot_implementation:
         bot_implementation = "openai"
-    if bot_implementation not in ["openai", "gemini"]:
+    if bot_implementation not in ["openai", "gemini","simple"]:
         raise ValueError(
             f"Invalid BOT_IMPLEMENTATION: {bot_implementation}. Must be 'openai' or 'gemini'"
         )
@@ -100,7 +100,169 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+redis_host = os.getenv("REDIS_HOST", "redis")
+redis_port = int(os.getenv("REDIS_PORT", 6379))
+redis_client = redis.StrictRedis(host=redis_host, port=redis_port, db=0)
 
+def store_bot_details(conversation_id, bot_details):
+    try:
+        # If bot_details is already a string, store it directly
+        if isinstance(bot_details, str):
+            redis_client.set(f"bot_details:{conversation_id}", bot_details)
+        else:
+            # If it's a dictionary or any other type, convert to JSON string
+            redis_client.set(f"bot_details:{conversation_id}", json.dumps(bot_details))
+        logger.info(f"Successfully stored bot details for conversation_id: {conversation_id}")
+    except Exception as e:
+        logger.error(f"An error occurred while storing bot details in Redis: {str(e)}")
+
+
+def get_bot_details_from_memory(conversation_id):
+    try:
+        # log that we are getting bot details from memory
+        logger.info(
+            f"Getting bot details from memory for conversation id: {conversation_id}"
+        )
+
+        # get the bot details from Redis cache
+        bot_details = redis_client.get(conversation_id)
+
+        # log the bot_details
+        logger.debug(f"Bot Details: {bot_details}")
+
+        if bot_details:
+            return json.loads(bot_details)
+
+        logger.warning(
+            f"Bot details not found in memory for conversation id: {conversation_id}"
+        )
+        return None
+    except Exception as e:
+        logger.error(
+            f"An error occurred while getting bot details from memory: {str(e)}"
+        )
+        return None
+
+def format_stt_variables(variables):
+    formatted_variables = dict()
+    for variable in variables:
+        formatted_variables[variable["name"]] = variable["sttConfig"]["domain"]
+
+    # logger.debug(f"formatted variables : {formatted_variables}")
+    return formatted_variables
+
+async def get_bot_details_by_conversation_id(conversation_id):
+    try:
+        # check if the bot details are already stored in memory
+        bot_details = get_bot_details_from_memory(conversation_id)
+        if bot_details:
+            return bot_details
+
+        url = "https://sansadhak-dev.reverieinc.com/api/bot/deploy/details"
+        payload = json.dumps({"conversationId": int(conversation_id)})
+        headers = {
+            "Content-Type": "application/json",
+            "Origin": "https://sansadhak-dev.reverieinc.com",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            print(f"url: {url}, headers: {headers}, payload: {payload}")
+            async with session.post(url, headers=headers, data=payload) as response:
+                resp_obj = await response.json()
+                logger.info(f"Got context for {conversation_id} => {resp_obj}")
+
+                if "data" not in resp_obj:
+                    response = {
+                        "api_details": {
+                            "REV-APP-ID": "com.domain",
+                            "REV-APPNAME": "nlu",
+                            "REV-API-KEY": "732407ffce16f9362f9f0eeb2b5aa5758cd09039",
+                            "PROJECT": "Eastman Auto",
+                            "MODEL": "eastman_model",
+                            "SUPPORT_PROJECT": "Eastman Auto",
+                            "SUPPORT_MODEL": "eastman_model",
+                            "TEMPLATE": "Eastman Auto_1720609506.0128822",
+                            "available_languages": ["en", "hi"],
+                        },
+                        "stt_variables": {},
+                        "tts_variables": {},
+                        "selectLanguage": False,
+                    }
+                    # Store as JSON string
+                    store_bot_details(conversation_id, json.dumps(response))
+                    return response
+
+                languages = resp_obj["data"]["testDetails"].get("languages", [])
+                PROJECT = resp_obj["data"]["testDetails"].get("projectName", "")
+                MODEL = resp_obj["data"]["testDetails"].get("modelName", "")
+                TEMPLATE = resp_obj["data"]["testDetails"].get("templateName", "")
+
+                stt_variables = format_stt_variables(
+                    resp_obj["data"].get("sttVariablesInfo", [])
+                )
+
+                tts_variables = {}
+                if "ttsProvider" in resp_obj["data"]["testDetails"]:
+                    pass
+
+                if "ttsSettings" in resp_obj["data"]["testDetails"]:
+                    pass
+
+                # log some message here
+                logger.info(f"Languages: {languages}")
+                selectLanguage = False
+                # try:
+                #     selectLanguage = (
+                #         resp_obj.get("data", {})
+                #         .get("botStyle", {})
+                #         .get("style", {})
+                #         .get("selectLanguage", True)
+                #     )
+                # except Exception as e:
+                #     logger.error(f"An error occurred while fetching selectLanguage: {str(e)}")
+                #     selectLanguage = True  # Default value if there's an error
+
+                # log some message here
+                logger.info(f"Select Language: {selectLanguage}")
+
+                ivrDetails = resp_obj.get("data", {}).get("ivrDetails", {})
+                providerData = resp_obj.get("data", {}).get("providerData", {})
+
+                # log the ivr details
+                logger.info(f"IVR details: {ivrDetails}")
+
+                logger.info(f"PROVIDER DATA: {providerData}")
+
+                agentSettings = resp_obj.get("data", {}).get("agentSettings", {})
+                logger.info(f"Agent settings: {agentSettings}")
+
+                response = {
+                    "api_details": {
+                        "REV-APP-ID": "com.domain",
+                        "REV-APPNAME": "nlu",
+                        "REV-API-KEY": "732407ffce16f9362f9f0eeb2b5aa5758cd09039",
+                        "PROJECT": PROJECT,
+                        "MODEL": MODEL,
+                        "SUPPORT_PROJECT": PROJECT,
+                        "SUPPORT_MODEL": MODEL,
+                        "TEMPLATE": TEMPLATE,
+                        "available_languages": languages,
+                    },
+                    "stt_variables": stt_variables,
+                    "tts_variables": tts_variables,
+                    "selectLanguage": selectLanguage,
+                    "ivrDetails": ivrDetails,
+                    "providerData": providerData,
+                    "agentSettings": agentSettings,
+                }
+
+                # Store as JSON string
+                store_bot_details(conversation_id, json.dumps(response))
+                return response
+
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
+        return None
 
 async def create_room_and_token() -> tuple[str, str]:
     """Helper function to create a Daily room and generate an access token.
@@ -161,32 +323,27 @@ async def start_agent(request: Request):
     return RedirectResponse(room_url)
 
 
-@app.post("/connect")
-async def rtvi_connect(request: Request) -> Dict[Any, Any]:
-    """RTVI connect endpoint that creates a room and returns connection credentials.
-
-    This endpoint is called by RTVI clients to establish a connection.
-
-    Returns:
-        Dict[Any, Any]: Authentication bundle containing room_url and token
-
-    Raises:
-        HTTPException: If room creation, token generation, or bot startup fails
-    """
+@app.post("/connect/{conversation_id}")
+async def rtvi_connect(conversation_id: int) -> Dict[Any, Any]:
     print("Creating room for RTVI connection")
     room_url, token = await create_room_and_token()
     print(f"Room URL: {room_url}")
+    if await get_bot_details_by_conversation_id(conversation_id):
+        
+        print(f"bot details: True")
+
 
     # Start the bot process
     try:
         bot_file = get_bot_file()
         proc = subprocess.Popen(
-            [f"python3 -m {bot_file} -u {room_url} -t {token}"],
+            [f"python3 -m {bot_file} -u {room_url} -t {token} -b {conversation_id}"],
             shell=True,
             bufsize=1,
             cwd=os.path.dirname(os.path.abspath(__file__)),
         )
         bot_procs[proc.pid] = (proc, room_url)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start subprocess: {e}")
 

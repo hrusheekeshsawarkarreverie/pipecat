@@ -8,9 +8,10 @@ const transport = new DailyTransport();
 const client = new RTVIClient({
   transport,
   params: {
-    baseUrl: 'http://localhost:7860',
+    baseUrl: 'http://172.18.0.04:85',
     endpoints: {
-      connect: '/connect',
+      // connect: '/connect',
+      connect: '/webrtc/connect/125881',
     },
   },
   enableMic: true,

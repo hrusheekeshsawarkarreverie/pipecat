@@ -16,8 +16,8 @@ from pipecat.frames.frames import (
     SystemFrame,
     TranscriptionFrame)
 from pipecat.processors.frame_processor import FrameDirection
-from pipecat.services.ai_services import AsyncAIService
-# from pipecat.utils.time import time_now_iso8601
+from pipecat.services.ai_services import STTService
+from pipecat.utils.time import time_now_iso8601
 
 from loguru import logger
 
@@ -31,7 +31,7 @@ except ModuleNotFoundError as e:
     raise Exception(f"Missing module: {e}")
 
 
-class ReverieSTTService(AsyncAIService):
+class ReverieSTTService(STTService):
     class InputParams(BaseModel):
         sample_rate: Optional[int] = 16000
         language: Optional[str] = "english"
@@ -49,21 +49,21 @@ class ReverieSTTService(AsyncAIService):
         self._api_key = api_key
         self._src_lang = src_lang
         self._domain = domain
-        # self._url = f"wss://revapi.reverieinc.com/stream?apikey={self._api_key}&appid=rev.stt_tts&appname=stt_stream&continuous=1&src_lang={self._src_lang}&punctuate=false&domain={self._domain}&silence=2&format=8k_int16"
-        self._url = f"ws://20.193.177.219/stream?apikey={self._api_key}&appid=rev.stt_tts&appname=stt_stream&continuous=1&src_lang={self._src_lang}&punctuate=false&domain={self._domain}&silence=2&format=8k_int16&partials=false&timestamps=false"
+        self._url = f"wss://revapi.reverieinc.com/stream?apikey={self._api_key}&appid=rev.stt_tts&appname=stt_stream&continuous=1&src_lang={self._src_lang}&punctuate=false&domain={self._domain}&silence=2&format=8k_int16"
+        # self._url = f"ws://20.193.177.219/stream?apikey={self._api_key}&appid=rev.stt_tts&appname=stt_stream&continuous=1&src_lang={self._src_lang}&punctuate=false&domain={self._domain}&silence=2&format=8k_int16&partials=false&timestamps=false"
 
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
+    # async def process_frame(self, frame: Frame, direction: FrameDirection):
+    #     await super().process_frame(frame, direction)
 
-        if isinstance(frame, SystemFrame):
-            await self.push_frame(frame, direction)
-        elif isinstance(frame, AudioRawFrame):
-            if self.is_websocket_open():
-                await self._send_audio(frame)
-            else:
-                logger.warning("Websocket connection is not open. Skipping audio transmission.")
-        else:
-            await self.queue_frame(frame, direction)
+    #     if isinstance(frame, SystemFrame):
+    #         await self.push_frame(frame, direction)
+    #     elif isinstance(frame, AudioRawFrame):
+    #         if self.is_websocket_open():
+    #             await self._send_audio(frame)
+    #         else:
+    #             logger.warning("Websocket connection is not open. Skipping audio transmission.")
+    #     else:
+    #         await self.queue_frame(frame, direction)
 
     # function to check if the websocket connection is live
     def is_websocket_open(self):
@@ -113,7 +113,8 @@ class ReverieSTTService(AsyncAIService):
                     # log that the utterance is final
                     logger.info(utterance)
                     logger.info(f"Final Utterance: {display_text}")
-                    await self.queue_frame(TranscriptionFrame(display_text, "", int(time.time_ns() / 1000000)))
+                    # await self.queue_frame(TranscriptionFrame(display_text, "", int(time.time_ns() / 1000000)))
+                    await self.push_frame(TranscriptionFrame(display_text, "", time_now_iso8601()))
                 else:
                     logger.info(f"Interim Utterance: {display_text}")
                     # await self.queue_frame(InterimTranscriptionFrame(display_text, "", int(time.time_ns() / 1000000)))

@@ -1,11 +1,17 @@
 import aiohttp
 import os
 from typing import AsyncGenerator
-from pipecat.frames.frames import AudioRawFrame, ErrorFrame, Frame
+from pipecat.frames.frames import AudioRawFrame, ErrorFrame, Frame,TTSAudioRawFrame
 from pipecat.services.ai_services import TTSService
 from loguru import logger
+import time
+import wave
+import base64
 
-
+# Example audio parameters
+sample_rate = 16000  # Hz
+num_channels = 1  # Mono
+sample_width = 2  # Bytes per sample (16-bit audio)
 class ReverieTTSService(TTSService):
 
     def __init__(
@@ -80,7 +86,7 @@ class ReverieTTSService(TTSService):
                 yield frame
         else:
             # log that generating tts for the first time
-            logger.info(f"Generating TTS for the first time: [{text}]")
+            logger.info(f"Generating TTS for the first timeeeee: [{text}]")
             
             url = "https://revapi.reverieinc.com/"
 
@@ -105,27 +111,49 @@ class ReverieTTSService(TTSService):
 
             await self.start_ttfb_metrics()
 
-            async with self._aiohttp_session.post(
-                url, json=payload, headers=headers
-            ) as r:
-                if r.status != 200:
-                    error_text = await r.text()
-                    logger.error(
-                        f"{self} error getting audio (status: {r.status}, error: {error_text})"
-                    )
-                    yield ErrorFrame(
-                        f"Error getting audio (status: {r.status}, error: {error_text})"
-                    )
-                    return
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, json=payload, headers=headers
+                ) as r:
+                    if r.status != 200:
+                        error_text = await r.text()
+                        logger.error(
+                            f"{self} error getting audio (status: {r.status}, error: {error_text})"
+                        )
+                        yield ErrorFrame(
+                            f"Error getting audio (status: {r.status}, error: {error_text})"
+                        )
+                        return
 
-                audio_data = await r.read()
-                
-                await self.stop_ttfb_metrics()
-                for i in range(0, len(audio_data), 16000):
-                    chunk = audio_data[i:i+16000]
-                    frame = AudioRawFrame(chunk, 16000, 1)
-                    yield frame
-                
-                    # save the audio data in the cache 
-                    # self.save_audio_data(text, chunk)
+                    audio_data = await r.read()
+
+                    print("Audio saved as output.wav")
+                    await self.stop_ttfb_metrics()
+                    # audio_data = base64.b64decode(audio_data)
+                    # filename = f"audio_{int(time.time() * 1000)}.wav"
+                    # with wave.open(filename, "wb") as wf:
+                    #     wf.setnchannels(num_channels)
+                    #     wf.setsampwidth(sample_width)
+                    #     wf.setframerate(sample_rate)
+                    #     wf.writeframes(audio_data)
+                    # frame = TTSAudioRawFrame(audio_data, 16000, 1)
+                    # await self.push_frame(frame)
+                    # yield frame
+                    for i in range(0, len(audio_data), 16000):
+                        chunk = audio_data[i:i+16000]
+                        # Create a unique filename using the current timestamp
+                        filename = f"audio_{int(time.time() * 1000)}.wav"
+                        with wave.open(filename, "wb") as wf:
+                            wf.setnchannels(num_channels)
+                            wf.setsampwidth(sample_width)
+                            wf.setframerate(sample_rate)
+                            wf.writeframes(chunk)
+                        # frame = AudioRawFrame(chunk, 16000, 1)
+                        # yield frame
+                        # chunk = base64.b64decode(chunk)
+                        frame = TTSAudioRawFrame(chunk, 16000, 1)
+                        await self.push_frame(frame)
+                    
+                        # save the audio data in the cache 
+                        # self.save_audio_data(text, chunk)
 

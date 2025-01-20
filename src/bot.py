@@ -21,7 +21,7 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 import aiohttp
 from pipecat.services.elevenlabs import ElevenLabsTTSService
 from pipecat.services.reverie_tts import ReverieTTSService
-
+from pipecat.services.reverie_stt import ReverieSTTService
 
 from loguru import logger
 
@@ -60,9 +60,10 @@ async def run_bot(websocket_client, stream_sid,call_sid,bot_details):
             websocket=websocket_client,
             params=FastAPIWebsocketParams(
                 audio_out_enabled=True,
+                audio_out_sample_rate=16000,
                 add_wav_header=False,
                 vad_enabled=True,
-                vad_analyzer=SileroVADAnalyzer(),
+                vad_analyzer=SileroVADAnalyzer(sample_rate=16000),
                 vad_audio_passthrough=True,
                 serializer=TwilioFrameSerializer(stream_sid),
             ),
@@ -87,7 +88,11 @@ async def run_bot(websocket_client, stream_sid,call_sid,bot_details):
                                 region=os.getenv("AZURE_REGION"),
                                 language="en-US",
                             )
-        
+        # stt_services = ReverieSTTService(
+        #                         api_key="84148cc0e57e75c7d1b1331bb99a2e94aa588d48",
+        #                         src_lang="en",
+        #                         domain="generic",
+        #                     )
         # tts_services = ElevenLabsTTSService(
         #                         aiohttp_session=session,
         #                         api_key=os.getenv("ELEVENLABS_API_KEY"),
@@ -96,27 +101,28 @@ async def run_bot(websocket_client, stream_sid,call_sid,bot_details):
         #                         model="eleven_multilingual_v1"
         #        
         #                 ),
-        print(f'azure api: {os.getenv("AZURE_API_KEY")}')
-        print(f'azure region: {os.getenv("AZURE_REGION")}')
-        tts_services = AzureTTSService(
-                            api_key=os.getenv("AZURE_API_KEY"),
-                            region=os.getenv("AZURE_REGION"),
-                            voice="En-IN-PrabhatNeural",
-                        )
-        # tts_services = ReverieTTSService(
-        #                     aiohttp_session=session,
-        #                     api_key=os.getenv("REVERIE_API_KEY"),
-        #                     # speaker=f"{lang}_female",  # or another dynamic value if provided
-        #                     speaker="hi_female",
-        #                     format="wav",
-        #                     speed=1.2,
-        #                     pitch=1,
-        #                 )
-        # tts = CartesiaTTSService(
-        #     api_key=os.getenv("CARTESIA_API_KEY"),
-        #     voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
-        # )
 
+        # tts_services = AzureTTSService(
+        #                     api_key=os.getenv("AZURE_API_KEY"),
+        #                     region=os.getenv("AZURE_REGION"),
+        #                     voice="En-IN-PrabhatNeural",
+        #                 )
+        tts_services = ReverieTTSService(
+                            aiohttp_session=session,
+                            api_key=os.getenv("REVERIE_API_KEY"),
+                            # speaker=f"{lang}_female",  # or another dynamic value if provided
+                            speaker="hi_female",
+                            format="wav",
+                            speed=1.2,
+                            pitch=1,
+                        )
+        # tts_services = ElevenLabsTTSService(
+        #                     # aiohttp_session=session,
+        #                     api_key=os.getenv("ELEVENLABS_API_KEY"),
+        #                     voice_id="JNaMjd7t4u3EhgkVknn3",
+        #                     # call_provider=call_provider,
+        #                     model="eleven_multilingual_v1",
+        #                 )
         messages = [
             {
                 "role": "system",

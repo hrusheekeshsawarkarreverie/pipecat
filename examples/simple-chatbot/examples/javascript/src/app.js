@@ -191,7 +191,8 @@ class ChatbotClient {
           // The baseURL and endpoint of your bot server that the client will connect to
           baseUrl: 'http://localhost:7860',
           endpoints: {
-            connect: '/connect',
+            connect: '/connect/125881',
+            // connect: '/connect',
           },
         },
         enableMic: true, // Enable microphone for user input
